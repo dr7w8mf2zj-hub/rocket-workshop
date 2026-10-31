@@ -1,0 +1,10 @@
+import { launch, BASE } from './browser.mjs';
+const { browser, page, logs, fails, reqs } = await launch();
+await page.goto(BASE + 'index.html?shot=1'); 
+await page.waitForFunction(() => window.__app && window.__app.ready || (window.__app && window.__app.errors.length), null, { timeout: 90000 }).catch(e => console.log('timeout waiting', e.message));
+await page.waitForTimeout(1500);
+console.log('errors', await page.evaluate(() => window.__app.errors));
+console.log('tex log', await page.evaluate(() => ({ ok: window.__app.lib?.log.filter(l => l.ok).length, failed: window.__app.lib?.failed })));
+await page.screenshot({ path: '/workspace/shots/editor_desktop.png' });
+console.log('logs', logs, fails); console.log('bad responses', reqs.filter(r => r[0] >= 400));
+await browser.close();

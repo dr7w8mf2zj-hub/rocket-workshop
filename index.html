@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e141c">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E🚀%3C/text%3E%3C/svg%3E">
+<title>Rocket Workshop — build &amp; launch</title>
+<link rel="stylesheet" href="css/style.css">
+<script type="importmap">{"imports":{"three":"./js/vendor/three.module.js"}}</script>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="loading"><div class="ld-box"><h1>🚀 Rocket Workshop</h1><div id="ldText">Loading textures…</div><div class="bar"><div id="ldBar"></div></div></div></div>
+
+<!-- ============================ EDITOR ============================ -->
+<div id="editor" class="screen">
+  <header id="topbar">
+    <div class="brand">🚀 <span>Rocket Workshop</span></div>
+    <input id="rocketName" title="Rocket name" maxlength="24" placeholder="Rocket name">
+    <input id="rocketId" title="Rocket ID / registration" maxlength="10" placeholder="ID">
+    <div class="spacer"></div>
+    <button id="bUndo" title="Undo (Ctrl+Z)">↶</button><button id="bRedo" title="Redo (Ctrl+Y)">↷</button>
+    <select id="selTemplate" title="Load an example rocket"><option value="">Examples…</option></select>
+    <button id="bNew" title="New empty design">New</button>
+    <button id="bSave" title="Save to browser storage">Save</button>
+    <button id="bLoad" title="Open saved designs">Open</button>
+    <button id="bExport" title="Download design as JSON file">Export</button>
+    <button id="bImport" title="Import a design JSON file">Import</button>
+    <input type="file" id="fileImport" accept=".json,application/json" hidden>
+    <button id="bSettings" title="Sandbox settings">⚙</button>
+    <button id="bHelp" title="Help &amp; controls">?</button>
+    <button id="bLaunch" class="primary">Launch ▶</button>
+  </header>
+
+  <aside id="inventory" class="panel">
+    <div class="ph">Parts <button class="mini only-mobile" data-close="inventory">✕</button></div>
+    <input id="partSearch" type="search" placeholder="Search parts…">
+    <div id="catTabs"></div>
+    <div id="partList"></div>
+    <div class="hint">Drag a part into the viewport, or tap/click to add it to the selected part.</div>
+  </aside>
+
+  <aside id="side" class="panel">
+    <div class="ph tabs" id="sideTabs"><button data-tab="props" class="on">Properties</button><button data-tab="paint">Paint</button><button data-tab="tree">Hierarchy</button><button data-tab="stage">Staging</button><button class="mini only-mobile" data-close="side">✕</button></div>
+    <div id="tab-props" class="tabbody"></div>
+    <div id="tab-paint" class="tabbody hidden"></div>
+    <div id="tab-tree" class="tabbody hidden"></div>
+    <div id="tab-stage" class="tabbody hidden"></div>
+  </aside>
+
+  <div id="toolbar">
+    <button data-act="rotX" title="Rotate 90° about X">⟳X</button><button data-act="rotY" title="Rotate 90° about Y">⟳Y</button><button data-act="rotZ" title="Rotate 90° about Z">⟳Z</button>
+    <button data-act="dup" title="Duplicate (Ctrl+D)">⧉</button><button data-act="del" title="Delete selected part (Del)">🗑</button>
+    <button data-act="detach" title="Detach from parent">⛓✂</button><button data-act="attach" title="Attach to the nearest free node">⛓</button>
+    <button data-act="nodes" title="Show / hide attachment nodes (N)">◎</button><button data-act="frame" title="Frame whole rocket (F)">⤢</button>
+    <label class="sym" title="Symmetry for radial parts (fins, boosters, legs...)">Sym <select id="selSym"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
+  </div>
+  <div id="statusbar"><span id="statusMsg">Ready</span></div>
+  <div id="statsbar"></div>
+  <div id="warnings" class="panel"></div>
+  <div id="mobileBtns"><button data-open="inventory">➕ Parts</button><button data-open="side">⚙ Edit</button><button data-open="warnings">⚠</button></div>
+</div>
+
+<!-- ============================ FLIGHT ============================ -->
+<div id="flight" class="screen hidden">
+  <div id="cockpitFrame"></div>
+  <div id="fTop">
+    <button id="fBack" title="Back to workshop">◀ Workshop</button>
+    <button id="fReset" title="Reset to the pad">⟲ Reset</button>
+    <button id="fPause" title="Pause / resume (Esc)">❚❚</button>
+    <button id="fCam" title="Camera mode (C)">📷 <span id="camName">chase</span></button>
+    <button id="fHelp">?</button>
+  </div>
+  <div id="countdown"></div>
+  <div id="messages"></div>
+  <div id="prelaunch" class="panel"></div>
+  <div id="stageSeq" class="panel"></div>
+  <div id="hud" class="panel"></div>
+  <div id="cockpitInfo" class="panel"></div>
+  <div id="throttleBox"><div id="thr"><div id="thrFill"></div></div><div id="thrTxt">0%</div></div>
+  <div id="touch">
+    <div id="joy"><div id="joyKnob"></div></div>
+    <div id="touchBtns">
+      <button id="bRollL">⟲</button><button id="bRollR">⟳</button>
+      <button id="bSas">SAS</button><button id="bRcs">RCS</button><button id="bEng">ENG</button><button id="bLegs">LEG</button>
+      <button id="bChute">🪂</button><button id="bFull">MAX</button><button id="bCut">CUT</button><button id="bCam">📷</button>
+      <button id="bStage" class="stagebtn">STAGE</button>
+    </div>
+  </div>
+  <div id="pausedBanner" class="hidden">PAUSED</div>
+</div>
+
+<!-- ============================ DIALOGS ============================ -->
+<div id="modal" class="hidden"><div id="modalBox"><div id="modalHead"><span id="modalTitle"></span><button id="modalClose">✕</button></div><div id="modalBody"></div></div></div>
+<div id="toast"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
