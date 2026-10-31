@@ -1,4 +1,5 @@
 // Construction workshop: 3D viewport, picking, drag & drop with snapping, selection, editing operations.
+import { getEnvironment } from './env.js';
 import * as THREE from 'three';
 import { PARTS, geom, nodes, fillDims, finishes, radiusAt, colorSchemes } from './registry.js';
 import { PartView, makeNodeMarker } from './models.js';
@@ -9,7 +10,7 @@ const V3 = THREE.Vector3;
 export class Workshop {
   constructor(renderer, canvas, design, history, lib) {
     this.renderer = renderer; this.canvas = canvas; this.design = design; this.history = history; this.lib = lib;
-    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x1b2430); this.scene.fog = new THREE.Fog(0x1b2430, 60, 220);
+    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x1b2430); this.scene.fog = new THREE.Fog(0x1b2430, 60, 220); this.scene.environment = getEnvironment(renderer); this.scene.environmentIntensity = 0.55;
     this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
     this.rig = new OrbitRig(this.camera, canvas); this.rig.target.set(0, 4, 0); this.rig.dist = 16;
     this.enabled = true; this.views = new Map(); this.selected = null; this.hover = null; this.drag = null; this.pending = null; this.claimed = false;
@@ -254,9 +255,9 @@ export class Workshop {
     this.status(dr.snap ? 'Attached.' : (this.design.parts.size > 1 ? 'Placed (not attached — drop near a green node to snap).' : 'Placed.'));
   }
   applySymmetry(id, snap) {
-    const n = this.design.settings.symmetry || 1; if (n <= 1) return; const d = this.design; const src = d.get(id);
+    const n = this.design.settings.symmetry || 1; if (n <= 1) return; const d = this.design; const src = d.get(id); src.sym = d.newSym();
     for (let k = 1; k < n; k++) {
-      const c = d.addPart(src.type, { dims: { ...src.dims }, appearance: JSON.parse(JSON.stringify(src.appearance)), config: JSON.parse(JSON.stringify(src.config)), stage: src.stage });
+      const c = d.addPart(src.type, { sym: src.sym, dims: { ...src.dims }, appearance: JSON.parse(JSON.stringify(src.appearance)), config: JSON.parse(JSON.stringify(src.config)), stage: src.stage });
       d.link(snap.target, c.id, { radial: { ang: snap.radial.ang + (Math.PI * 2 * k) / n, y: snap.radial.y } });
     }
     d.layout();
@@ -320,7 +321,7 @@ export class Workshop {
   deleteSelected(withChildren = false) {
     const id = this.selected; if (!id) return; const d = this.design;
     const par = d.parentOf(id);
-    if (withChildren) d.removeSubtree(id); else d.removePart(id);
+    const grp = d.symGroup(id); for (const gid of grp) { if (!d.get(gid)) continue; if (withChildren) d.removeSubtree(gid); else d.removePart(gid); }
     if (!d.rootId || !d.parts.has(d.rootId)) d.rootId = d.flightRoot();
     this.selected = null; this.history.commit(); this.syncViews(); this.emit('select', null); this.emit('change'); this.status('Deleted.');
   }
@@ -369,14 +370,14 @@ export class Workshop {
     d.rotateAbout(d.subtree(id), new V3(...p.pos), target.multiply(cur.invert())); this.changed();
   }
   setDim(key, value, commit = true) {
-    const id = this.selected; if (!id) return; const p = this.design.get(id); if (!(key in p.dims)) return; p.dims[key] = value; this.changed(commit);
+    const id = this.selected; if (!id) return; const p = this.design.get(id); if (!(key in p.dims)) return; for (const gid of this.design.symGroup(id)) { const q = this.design.get(gid); if (q && key in q.dims) q.dims[key] = value; } this.changed(commit);
   }
   setAppearance(patch, ids = null, commit = true) {
-    const targets = ids || (this.selected ? [this.selected] : []);
+    const targets = ids || (this.selected ? this.design.symGroup(this.selected) : []);
     for (const id of targets) { const p = this.design.get(id); if (p) Object.assign(p.appearance, patch); }
     if (commit) this.history.commit(); this.syncViews(); this.emit('change');
   }
-  setConfig(patch, commit = true) { const p = this.design.get(this.selected); if (!p) return; Object.assign(p.config, patch); if (commit) this.history.commit(); this.syncViews(); this.emit('change'); }
+  setConfig(patch, commit = true) { const p = this.design.get(this.selected); if (!p) return; for (const gid of this.design.symGroup(this.selected)) Object.assign(this.design.get(gid).config, patch); if (commit) this.history.commit(); this.syncViews(); this.emit('change'); }
   applyScheme(name) {
     const sc = colorSchemes[name]; if (!sc) return; const d = this.design; const veh = new Set(d.vehicle().ids);
     for (const p of d.parts.values()) {
@@ -403,7 +404,7 @@ export class Workshop {
 
 /** Render a small thumbnail for each part type (one PartView at a time, then disposed). */
 export function renderThumbnails(renderer, lib, size = 112) {
-  const out = {}; const scene = new THREE.Scene(); scene.background = null;
+  const out = {}; const scene = new THREE.Scene(); scene.background = null; scene.environment = getEnvironment(renderer); scene.environmentIntensity = 0.7;
   scene.add(new THREE.HemisphereLight(0xffffff, 0x445566, 1.2)); const dl = new THREE.DirectionalLight(0xffffff, 2.4); dl.position.set(3, 5, 4); scene.add(dl);
   const cam = new THREE.PerspectiveCamera(32, 1, 0.05, 100);
   const rt = new THREE.WebGLRenderTarget(size, size, { samples: 4, colorSpace: THREE.SRGBColorSpace }); const buf = new Uint8Array(size * size * 4);

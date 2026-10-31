@@ -13,9 +13,44 @@ function stackUp(d, types, start = [0, 0, 0], opts = {}) {
   d.layout(); return parts;
 }
 function radial(d, host, type, ang, y, dims) { const p = d.addPart(type, { dims }); d.link(host.id, p.id, { radial: { ang, y } }); d.layout(); return p; }
-function sym(d, host, type, n, y, dims, off = 0) { const out = []; for (let i = 0; i < n; i++) out.push(radial(d, host, type, off + i * Math.PI * 2 / n, y, dims)); return out; }
+function sym(d, host, type, n, y, dims, off = 0) { const out = []; const sid = n > 1 ? d.newSym() : null; for (let i = 0; i < n; i++) { const p = radial(d, host, type, off + i * Math.PI * 2 / n, y, dims); p.sym = sid; out.push(p); } return out; }
+
+function paint(parts, patch) { for (const p of parts) Object.assign(p.appearance, patch); }
 
 export const TEMPLATES = {
+  'Falcon 9 (Dragon, landing booster)': () => {
+    const d = new Design(); d.name = 'Falcon 9'; d.idCode = 'F9-01';
+    const [e1, t1, t2, av1, ist, dec, e2, t3, cap, chute] = stackUp(d, ['merlin_cluster', 'lite_tank', 'lite_tank', 'avionics_ring', 'interstage', 'decoupler', 'liquid_engine_vac', 'lite_tank', 'capsule', 'parachute'], [0, 0, 0],
+      { merlin_cluster: { radius: 0.625, count: 9 }, lite_tank: { length: 6.2 }, liquid_engine_vac: { scale: 0.8 }, parachute: { canopy: 6 } });
+    t3.dims.length = 3.4; d.layout();
+    const fins = sym(d, ist, 'grid_fin', 4, 0, { span: 0.7, chord: 0.55 }, Math.PI / 4);
+    const legs = sym(d, t1, 'landing_legs', 4, -2.7, { length: 3.0 }, Math.PI / 4);
+    for (const p of [t1, t2, t3, cap]) p.appearance.color = '#f4f4f4'; t1.appearance.markName = true; t2.appearance.markId = true; t3.appearance.markName = true; cap.appearance.markId = true;
+    paint(fins, { color: '#7d8087' }); paint(legs, { color: '#2a2c30' }); ist.appearance.color = '#303236'; av1.appearance.color = '#d9dbe0';
+    d.rootId = cap.id; d.autoStage(); d.settings.autoStage = true; d.settings.autoRecover = true; d.settings.reserve = 0.14; return d;
+  },
+  'Falcon 9 (fairing)': () => {
+    const d = new Design(); d.name = 'Falcon 9 F'; d.idCode = 'F9-02';
+    const [e1, t1, t2, av1, ist, dec, e2, t3, av2, fair] = stackUp(d, ['merlin_cluster', 'lite_tank', 'lite_tank', 'avionics_ring', 'interstage', 'decoupler', 'liquid_engine_vac', 'lite_tank', 'avionics_ring', 'fairing'], [0, 0, 0],
+      { merlin_cluster: { radius: 0.625, count: 9 }, lite_tank: { length: 6.2 }, liquid_engine_vac: { scale: 0.8 }, fairing: { length: 3.6 } });
+    t3.dims.length = 3.4; d.layout();
+    const fins = sym(d, ist, 'grid_fin', 4, 0, { span: 0.7, chord: 0.55 }, Math.PI / 4); const legs = sym(d, t1, 'landing_legs', 4, -2.7, { length: 3.0 }, Math.PI / 4);
+    sym(d, av2, 'battery', 2, 0, { radius: 0.25, length: 0.3 }, 0);
+    for (const p of [t1, t2, t3]) p.appearance.color = '#f4f4f4'; t1.appearance.markName = true; t3.appearance.markId = true; paint(fins, { color: '#7d8087' }); paint(legs, { color: '#2a2c30' }); ist.appearance.color = '#303236';
+    d.rootId = av2.id; d.autoStage(); d.settings.autoStage = true; d.settings.autoRecover = true; d.settings.reserve = 0.14; return d;
+  },
+  'Starship (Super Heavy + Ship)': () => {
+    const d = new Design(); d.name = 'Starship'; d.idCode = 'SN-20';
+    const [rc, b1, b2, bav, hot, dec, rv, s1, s2, sav, sbody, nose] = stackUp(d, ['raptor_cluster', 'steel_tank', 'steel_tank', 'avionics_ring', 'interstage', 'decoupler', 'raptor_vac_cluster', 'steel_tank', 'steel_tank', 'avionics_ring', 'steel_body', 'steel_nose'], [0, 0, 0],
+      { raptor_cluster: { radius: 1.125, count: 33 }, steel_tank: { radius: 1.125, length: 7.5 }, avionics_ring: { radius: 1.125, length: 0.5 }, interstage: { radius: 1.125, length: 1.0 }, decoupler: { radius: 1.125 }, raptor_vac_cluster: { radius: 1.125, count: 6 }, steel_body: { radius: 1.125, length: 2.6 }, steel_nose: { radius: 1.125, length: 3.2 } });
+    s1.dims.length = 3.5; s2.dims.length = 2.0; d.layout();
+    const gf = sym(d, hot, 'grid_fin', 4, 0, { span: 0.6, chord: 0.9 }, Math.PI / 4);
+    const legs = sym(d, b1, 'landing_legs', 4, -3.4, { length: 3.4 }, Math.PI / 4);
+    const fwd = sym(d, sbody, 'flap', 2, 0.5, { span: 1.0, chord: 1.2 }, Math.PI / 2); const aft = sym(d, s2, 'flap', 2, -0.6, { span: 1.6, chord: 1.6 }, Math.PI / 2);
+    paint(fwd, { color: '#e6e6ea' }); paint(aft, { color: '#e6e6ea' }); paint(gf, { color: '#8a8d93' }); paint(legs, { color: '#8a8d93' }); hot.appearance.color = '#4a4c52'; sav.appearance.color = '#c9ccd3'; bav.appearance.color = '#c9ccd3';
+    for (const p of [b1, s1]) p.appearance.markName = true; b2.appearance.markId = true;
+    d.rootId = sav.id; d.autoStage(); d.settings.autoStage = true; d.settings.autoRecover = true; d.settings.reserve = 0.12; return d;
+  },
   'Lark-1 (single stage)': () => {
     const d = new Design(); d.name = 'Lark-1'; d.idCode = 'LK-01';
     const [eng, t1, t2, pod, chute] = stackUp(d, ['liquid_engine', 'fuel_tank', 'fuel_tank', 'control_module', 'parachute'], [0, 0, 0], { parachute: { canopy: 12 } });

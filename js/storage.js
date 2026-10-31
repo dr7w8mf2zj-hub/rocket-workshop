@@ -16,6 +16,16 @@ export const Store = {
   saveSettings(s) { write(KEY_SET, s); },
 };
 
+const KEY_PROG = 'rw.progress.v1';
+export const UNLOCK_ALT = 3000;   // metres: reach this altitude once to unlock the advanced (rocket-class) parts
+export const Progress = {
+  get() { return Object.assign({ maxAlt: 0, launches: 0, landings: 0, unlockAll: false }, read(KEY_PROG, {})); },
+  set(p) { write(KEY_PROG, p); },
+  update(fn) { const p = this.get(); fn(p); this.set(p); return p; },
+  unlocked() { const p = this.get(); return !!p.unlockAll || p.maxAlt >= UNLOCK_ALT; },
+  reset() { try { localStorage.removeItem(KEY_PROG); } catch (e) {} },
+};
+
 export function exportDesign(json) {
   const blob = new Blob([JSON.stringify(json, null, 1)], { type: 'application/json' });
   const a = document.createElement('a'); const safe = (json.name || 'rocket').replace(/[^\w\-]+/g, '_');

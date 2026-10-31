@@ -16,15 +16,19 @@ export class FlightControls {
   chutes() { if (this.phys && this.flight.state === 'flying') this.phys.deployAllChutes(); }
   engines() { const p = this.phys; if (!p || !p.active) return; const any = p.active.parts.some(x => x.engine && x.engine.liquid && x.engine.ignited && x.engine.on); p.toggleEngines(!any); this.flight.msg('Engines ' + (any ? 'shut down' : 'restarted')); }
   legs() { const p = this.phys; if (!p) return; const cur = p.active.parts.find(x => x.leg); if (cur) { p.toggleLegs(cur.leg.target > 0.5 ? 0 : 1); this.flight.msg('Landing legs ' + (cur.leg.target > 0.5 ? 'retracting' : 'deploying')); } }
+  fins() { const p = this.phys; if (!p || !p.active) return; const on = p.toggleFins(); if (on === null) this.flight.msg('No stowable grid fins on this vehicle', 'warn'); else this.flight.msg('Grid fins ' + (on ? 'deploying' : 'stowing')); }
+  autoland() { const p = this.phys; if (!p || !p.active) return; if (this.flight.state !== 'flying') return; if (!p.active.hasControl) { this.flight.msg('Auto-land needs a control module / avionics ring', 'warn'); return; } const on = p.toggleAutoland(); if (on) p.deployFins(p.active, true); }
+  switchVehicle() { const p = this.phys; if (!p) return; if (!p.switchActive()) this.flight.msg('No other controllable vehicle', 'warn'); }
+  sasMode() { const p = this.phys; if (!p) return; const m = p.cycleSasMode(); p.inputs.sas = true; this.flight.msg('SAS mode: ' + m); }
   bindKeys() {
     window.addEventListener('keydown', (e) => {
       if (!this.active || e.target.closest?.('input,select,textarea')) return;
-      const k = e.code; const game = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'KeyP', 'KeyZ', 'KeyX', 'KeyT', 'KeyR', 'KeyC', 'KeyG', 'KeyM', 'ArrowUp', 'ArrowDown', 'Escape', 'KeyH'];
+      const k = e.code; const game = ['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'Space', 'ShiftLeft', 'ShiftRight', 'ControlLeft', 'ControlRight', 'KeyP', 'KeyZ', 'KeyX', 'KeyT', 'KeyR', 'KeyC', 'KeyG', 'KeyM', 'ArrowUp', 'ArrowDown', 'Escape', 'KeyH', 'KeyF', 'KeyL', 'KeyV', 'Tab'];
       if (!game.includes(k)) return; if (!(e.ctrlKey && k !== 'ControlLeft' && k !== 'ControlRight')) e.preventDefault();
       if (e.repeat) { this.keys.add(k); return; } this.keys.add(k);
       switch (k) {
         case 'Space': this.stage(); break; case 'KeyP': this.chutes(); break; case 'KeyZ': this.setThrottle(1); break; case 'KeyX': this.setThrottle(0); break;
-        case 'KeyT': this.toggleSas(); break; case 'KeyR': this.toggleRcs(); break; case 'KeyC': this.hooks.onCamera?.(); break; case 'KeyG': this.legs(); break; case 'KeyM': this.engines(); break;
+        case 'KeyT': this.toggleSas(); break; case 'KeyR': this.toggleRcs(); break; case 'KeyC': this.hooks.onCamera?.(); break; case 'KeyG': this.legs(); break; case 'KeyF': this.fins(); break; case 'KeyL': this.autoland(); break; case 'KeyV': this.sasMode(); break; case 'Tab': this.switchVehicle(); break; case 'KeyM': this.engines(); break;
         case 'Escape': this.hooks.onPause?.(); break; case 'KeyH': this.hooks.onHelp?.(); break;
       }
     });
@@ -53,7 +57,7 @@ export class FlightControls {
     hold('#bRollL', () => { this.touchRoll = -1; }, () => { this.touchRoll = 0; }); hold('#bRollR', () => { this.touchRoll = 1; }, () => { this.touchRoll = 0; });
     const tap = (sel, fn) => { const el = $(sel); if (el) el.addEventListener('click', (e) => { e.stopPropagation(); fn(); }); };
     tap('#bStage', () => this.stage()); tap('#bChute', () => this.chutes()); tap('#bSas', () => this.toggleSas()); tap('#bRcs', () => this.toggleRcs());
-    tap('#bCam', () => this.hooks.onCamera?.()); tap('#bEng', () => this.engines()); tap('#bFull', () => this.setThrottle(1)); tap('#bCut', () => this.setThrottle(0)); tap('#bLegs', () => this.legs());
+    tap('#bCam', () => this.hooks.onCamera?.()); tap('#bEng', () => this.engines()); tap('#bFull', () => this.setThrottle(1)); tap('#bCut', () => this.setThrottle(0)); tap('#bLegs', () => this.legs()); tap('#bFins', () => this.fins()); tap('#bAuto', () => this.autoland()); tap('#bSw', () => this.switchVehicle()); tap('#bMode', () => this.sasMode());
   }
   update(dt) {
     const p = this.phys; if (!p) return; const k = this.keys; const inp = p.inputs;

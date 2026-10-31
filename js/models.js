@@ -1,7 +1,7 @@
 // 3D part models. Each part type has its own procedural model builder; every PartView owns its geometries and
 // CLONED materials (so appearance edits never leak between parts) and disposes them in dispose().
 import * as THREE from 'three';
-import { PARTS, geom, fillDims, finishes, surfacePresets, insignias, engineGeom } from './registry.js';
+import { PARTS, geom, fillDims, finishes, surfacePresets, insignias, engineGeom, capsuleR, fairingR } from './registry.js';
 
 const SEG = 40;
 const TAU = Math.PI * 2;
@@ -67,7 +67,7 @@ export class PartView {
   }
   build() {
     this.clear();
-    const { def, part } = this; const { r, L, d } = geom(def, part.dims);
+    this.def = PARTS[this.part.type]; const { def, part } = this; const { r, L, d } = geom(def, part.dims);
     const tex = def.texture, tex2 = def.texture2 || def.texture, tv = def.tileV;
     let decalGeo = null;
     const mk = {
@@ -100,6 +100,44 @@ export class PartView {
         pts.push([0.002, L / 2]);
         const g = latheGeo(pts); this.add(g, 'main', tex); decalGeo = null;
         this.extras.cockpitY = L * 0.12;
+      },
+      capsule: () => {
+        const n = 30, pts = [[0.002, -L / 2]]; pts.push([r * 0.45, -L / 2 - 0.015]); pts.push([r * 0.72, -L / 2 + 0.03]);
+        for (let i = 1; i <= n; i++) { const t = i / n; pts.push([Math.max(0.002, capsuleR(def, r, t)), -L / 2 + t * L]); }
+        pts.push([0.002, L / 2]); const g = latheGeo(pts); this.add(g, 'main', tex); decalGeo = null;
+        this.add(new THREE.TorusGeometry(r * def.topK * 0.8, r * 0.04, 8, 24), 'metal', 'none', { pos: [0, L / 2, 0], rot: [Math.PI / 2, 0, 0] });
+        this.extras.cockpitY = L * 0.1;
+      },
+      fairing: () => {
+        const n = 36, pts = [[0.002, -L / 2]]; for (let i = 0; i <= n; i++) { const t = i / n; pts.push([Math.max(0.002, fairingR(r, t)), -L / 2 + t * L]); }
+        this.add(latheGeo(pts), 'main', tex); decalGeo = null;
+      },
+      cluster: () => {
+        const eg = engineGeom(def, part.dims); const hS = 0.3 * L; const nz = eg.nozzles; const seg = nz.length > 12 ? 14 : nz.length > 4 ? 20 : 28;
+        this.add(cylGeo(r, r, hS, false), 'main', tex, { pos: [0, L / 2 - hS / 2, 0] });
+        this.add(capGeo(r, true), 'main', tex, { pos: [0, L / 2, 0] });
+        this.add(capGeo(r * 0.98, false), 'dark', 'none', { pos: [0, L / 2 - hS, 0] });
+        this.add(cylGeo(r * 1.02, r * 1.02, 0.06, false, false), 'metal', tex, { pos: [0, L / 2 - hS, 0] });
+        for (const e of nz) {
+          const g = latheGeo(bellPts(e.r * 0.3, e.r, -L / 2, L / 2 - hS, 8), seg);
+          this.add(g, 'metal', tex2, { double: true, pos: [e.x, 0, e.z] });
+          this.add(cylGeo(e.r * 0.32, e.r * 0.32, hS * 0.25, false, false, 10), 'dark', tex, { pos: [e.x, L / 2 - hS - 0.03, e.z] });
+        }
+      },
+      gridfin: () => {
+        const s = d.span, c = d.chord, t = 0.07, w = Math.max(0.025, Math.min(s, c) * 0.06);
+        const bar = (x0, x1, y0, y1) => this.add(new THREE.BoxGeometry(x1 - x0, y1 - y0, t), 'main', tex, { pos: [(x0 + x1) / 2, (y0 + y1) / 2, 0] });
+        bar(0, s, c / 2 - w, c / 2); bar(0, s, -c / 2, -c / 2 + w); bar(0, w, -c / 2, c / 2); bar(s - w, s, -c / 2, c / 2);
+        for (let i = 1; i < 4; i++) { const x = s * i / 4; bar(x - w / 2, x + w / 2, -c / 2, c / 2); }
+        for (let i = 1; i < 3; i++) { const y = -c / 2 + c * i / 3; bar(0, s, y - w / 2, y + w / 2); }
+        this.add(new THREE.CylinderGeometry(0.03, 0.03, 0.14, 10), 'metal', 'none', { pos: [-0.02, 0, 0], rot: [0, 0, Math.PI / 2] });
+      },
+      flap: () => {
+        const c = d.chord, s = d.span; const sh = new THREE.Shape(); const tip = c * 0.62;
+        sh.moveTo(0, -c / 2); sh.lineTo(s * 0.8, -tip / 2); sh.quadraticCurveTo(s * 1.03, -tip / 2, s * 1.03, -tip / 2 + 0.12 * tip); sh.lineTo(s * 1.03, tip / 2 - 0.12 * tip); sh.quadraticCurveTo(s * 1.03, tip / 2, s * 0.8, tip / 2); sh.lineTo(0, c / 2); sh.closePath();
+        const g = new THREE.ExtrudeGeometry(sh, { depth: 0.09, bevelEnabled: true, bevelSize: 0.02, bevelThickness: 0.02, bevelSegments: 1, curveSegments: 6 }); g.translate(0, 0, -0.045);
+        const p = g.attributes.position, uv = g.attributes.uv; for (let i = 0; i < p.count; i++) uv.setXY(i, p.getX(i) / (s * 1.03), p.getY(i) / c + 0.5);
+        this.add(g, 'main', tex); this.add(new THREE.CylinderGeometry(0.05, 0.05, c * 0.9, 10), 'metal', 'none', { pos: [-0.01, 0, 0] });
       },
       shield: () => {
         const pts = [[0.002, -L / 2 - 0.02], [r * 0.5, -L / 2 - 0.0], [r * 0.85, -L / 2 + 0.05], [r, -L / 2 + 0.11], [r, L / 2], [0.002, L / 2]];
@@ -168,7 +206,12 @@ export class PartView {
     (mk[def.model] || mk.tube)();
     // radial parts that are cylinders keep their local origin at the centre; others at the attach point. nothing to do here.
     this.setupDecal(decalGeo);
-    if (def.engine) { const eg = engineGeom(def, part.dims); this.exhaust = { pivot: new THREE.Vector3(0, eg.pivotY, 0), exit: new THREE.Vector3(0, eg.exitY, 0), r: eg.exitR }; }
+    if (def.engine) {
+      const eg = engineGeom(def, part.dims); this.exhaust = { pivot: new THREE.Vector3(0, eg.pivotY, 0), exit: new THREE.Vector3(0, eg.exitY, 0), r: eg.exitR, nozzles: [] };
+      if (eg.nozzles) { const nz = eg.nozzles; const pick = nz.length <= 9 ? nz : nz.filter((_, i) => i % Math.ceil(nz.length / 9) === 0 || i === 0).slice(0, 9); const k = Math.sqrt(nz.length / pick.length);
+        this.exhaust.nozzles = pick.map(e => ({ pos: new THREE.Vector3(e.x, eg.exitY, e.z), r: e.r * 1.05 * k })); this.exhaust.share = pick.length / nz.length; }
+      else this.exhaust.nozzles = [{ pos: new THREE.Vector3(0, eg.exitY, 0), r: eg.exitR }];
+    }
     this.applyAppearance();
   }
   // -------------------------------------------------------------- decals (rocket name / ID / insignia / stripe / scorch)
@@ -234,7 +277,7 @@ export class PartView {
       if (m.map !== t) { m.map = t; m.bumpMap = t && e.role !== 'rubber' ? t : null; m.needsUpdate = true; }
       m.bumpScale = 0.7;
       m.color.set(tinted ? (a.color || '#ffffff') : (e.role === 'rubber' ? '#222222' : e.role === 'dark' ? '#d0d0d0' : '#ffffff'));
-      const rd = ROLE_DEFAULT[e.role] || ROLE_DEFAULT.main;
+      const rd = (e.role === 'main' && this.def.metal) ? { metalness: 0.35, roughness: 0.4 } : (ROLE_DEFAULT[e.role] || ROLE_DEFAULT.main);
       m.metalness = (tinted && a.metalness != null) ? a.metalness : rd.metalness;
       m.roughness = (tinted && a.roughness != null) ? a.roughness : rd.roughness;
       if (a.heatDamage && tinted) m.color.multiplyScalar(0.75);
@@ -255,6 +298,11 @@ export class PartView {
     }
   }
   // -------------------------------------------------------------- landing leg deploy animation
+  /** control-surface deflection (about local X, the span axis) and stow factor */
+  setSurface(defl, stow, lq) {
+    if (!this._qs) { this._qs = new THREE.Quaternion(); this._ax = new THREE.Vector3(1, 0, 0); }
+    this._qs.setFromAxisAngle(this._ax, defl); this.group.quaternion.copy(lq).multiply(this._qs); this.group.scale.set(1 - 0.88 * stow, 1, 1 - 0.5 * stow);
+  }
   setLegDeploy(f) { for (const p of this.legs) p.rotation.z = -0.614 * (1 - f); }
   /** Lazily create the parachute canopy mesh (unit hemisphere scaled by canopy radius). */
   ensureCanopy() {

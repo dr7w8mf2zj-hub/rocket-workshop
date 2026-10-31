@@ -7,6 +7,8 @@ import { Effects, makeFlame } from './effects.js';
 import { PartView } from './models.js';
 import { OrbitRig } from './camera.js';
 import { PARTS } from './registry.js';
+import { DebugViz } from './debugviz.js';
+import { getEnvironment } from './env.js';
 
 const V3 = THREE.Vector3;
 export const CAMERA_MODES = ['chase', 'cockpit', 'free'];
@@ -14,7 +16,7 @@ export const CAMERA_MODES = ['chase', 'cockpit', 'free'];
 export class Flight {
   constructor(renderer, lib, canvas) {
     this.renderer = renderer; this.lib = lib; this.canvas = canvas;
-    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x000000);
+    this.scene = new THREE.Scene(); this.scene.background = new THREE.Color(0x000000); this.scene.environment = getEnvironment(renderer);
     this.camera = new THREE.PerspectiveCamera(55, 1, 0.3, 2.5e6);
     this.rig = new OrbitRig(this.camera, canvas); this.rig.minDist = 3; this.rig.maxDist = 800; this.rig.dist = 28; this.rig.az = 0.7; this.rig.el = 0.2;
     this.rig.attach(() => this.camMode !== 'cockpit');
@@ -22,7 +24,8 @@ export class Flight {
     this.settings = defaultSettings(); this.phys = null; this.partViews = new Map(); this.bodyViews = new Map(); this.canopies = new Map();
     this.state = 'idle'; this.count = 0; this.camMode = 'chase'; this.design = null; this.messages = []; this.clock = 0; this.clampOpen = 0; this.openClamps = false;
     this.fwd = new V3(0, 0, -1); this.frame = { right: new V3(1, 0, 0), forward: new V3(0, 0, -1) }; this.shakeAmp = 0; this.freeTarget = new V3(0, 10, 0);
-    this.camPosSmooth = new V3(); this.t = 0; this.shadowOn = true;
+    this.camPosSmooth = new V3(); this.t = 0; this.shadowOn = true; this.debugFlags = { com: false, cop: false, thrust: false, nodes: false }; this.dbg = new DebugViz(this.scene); this.perf = { steps: 0, physMs: 0, frameMs: 0 };
+    this.cheatsPending = null; this.overrides = {};
   }
   msg(text, kind = 'info') { this.messages.push({ text, kind, t: performance.now() }); if (this.messages.length > 8) this.messages.shift(); }
 
@@ -45,7 +48,7 @@ export class Flight {
     this.phys = new PhysicsWorld(terrain, this.settings);
     const body = this.phys.buildVehicle(design); if (!body) return null;
     body.pos.set(0, -body.lowest + 0.02, 0); body.held = true; this.phys.clampActive = true; this.phys.inputs.throttle = 0;
-    this.phys.autoStage = !!design.settings?.autoStage; this.state = 'prelaunch'; this.count = 0; this.clock = 0; this.clampOpen = 0; this.openClamps = false; this.world.setClamps(0);
+    this.phys.autoStage = !!design.settings?.autoStage; this.phys.autoRecover = !!design.settings?.autoRecover; this.phys.reserve = design.settings?.reserve || 0; if (this.pendingCheats) Object.assign(this.phys.cheats, this.pendingCheats); this.state = 'prelaunch'; this.count = 0; this.clock = 0; this.clampOpen = 0; this.openClamps = false; this.world.setClamps(0);
     this.messages = []; this.syncViews(true);
     this.rig.target.copy(body.pos); this.rig.dist = Math.max(14, body.radius * 2.6) * Math.max(1, 1.15 / this.camera.aspect); this.rig.az = 0.7; this.rig.el = 0.18; this.freeTarget.copy(body.pos);
     this.camMode = 'chase'; this.lastFrameT = performance.now();
@@ -67,7 +70,7 @@ export class Flight {
       for (const ps of b.parts) {
         alive.add(ps.id); let pv = this.partViews.get(ps.id);
         if (!pv) { const view = new PartView({ id: ps.id, type: ps.type, dims: ps.design.dims, appearance: ps.design.appearance, config: ps.design.config }, this.lib); view.applyAppearance({ name: this.design.name, id: this.design.idCode }); pv = { view, flames: null, ps }; this.partViews.set(ps.id, pv);
-          if (ps.engine && view.exhaust) { pv.flames = [makeFlame(), makeFlame()]; pv.flames[1].material.uniforms.uCol.value.set(0.9, 0.85, 1.0); for (const f of pv.flames) { f.visible = false; view.group.add(f); f.position.copy(view.exhaust.exit); } } }
+          if (ps.engine && view.exhaust) { pv.flames = []; for (const nz of view.exhaust.nozzles) { const a = makeFlame(), b = makeFlame(); b.material.uniforms.uCol.value.set(0.9, 0.85, 1.0); for (const f of [a, b]) { f.visible = false; view.group.add(f); f.position.copy(nz.pos); pv.flames.push(f); } } } }
         if (pv.bv !== bv) { bv.group.add(pv.view.group); pv.bv = bv; }
         pv.view.group.position.copy(ps.lp); pv.view.group.quaternion.copy(ps.lq);
       }
@@ -88,20 +91,24 @@ export class Flight {
         view.setHeat(heat > 0.25 ? heat - 0.15 : 0);
         if (ps.leg) view.setLegDeploy(ps.leg.deployed);
         if (ps.chute) this.updateChute(b, ps, pv);
+        if (ps.surf) view.setSurface(ps.surf.defl, ps.surf.stow, ps.lq);
         if (ps.engine && pv.flames) {
-          const e = ps.engine; const on = e.thrust > 1; const alt = b.pos.y;
-          for (let i = 0; i < 2; i++) pv.flames[i].visible = on;
+          const e = ps.engine; const on = e.thrust > 1; const alt = b.pos.y; const nzs = view.exhaust.nozzles; const nN = nzs.length;
+          for (const f of pv.flames) f.visible = on;
           if (on) {
-            const pr = press(alt); const frac = e.thrust / ((e.thrustMax * e.boost) || 1); const flick = 0.85 + 0.3 * Math.random();
-            const base = Math.sqrt(e.thrust / 200000) * (e.liquid ? 1 : 0.9);
-            const len = (3.5 + 10 * base * (1 + 1.6 * (1 - pr))) * flick * (0.5 + 0.5 * frac); const rad = e.exitR * (1.0 + 0.9 * (1 - pr)) * 1.05;
-            pv.flames[0].scale.set(rad, len, rad); pv.flames[1].scale.set(rad * 0.55, len * 0.55, rad * 0.55);
-            pv.flames[0].material.uniforms.uTime.value = this.t; pv.flames[1].material.uniforms.uTime.value = this.t;
-            pv.flames[0].material.uniforms.uInt.value = 0.9 * Math.min(1, 0.4 + 0.8 * pr + 0.4 * (1 - pr)); pv.flames[1].material.uniforms.uInt.value = 1.0;
-            if (e.gimbalVec) { pv.flames[0].rotation.set(e.gimbalVec.z, 0, -e.gimbalVec.x); pv.flames[1].rotation.copy(pv.flames[0].rotation); }
-            // particles
-            const exit = b.worldPoint(e.exit, tmp.clone()); const dir = (e.dirWorld || new V3(0, 1, 0)).clone().multiplyScalar(-1);
-            this.effects.exhaust(exit, dir, b.vel, Math.min(1, frac), e.exitR, rhoOf(alt), pr, heightAt(exit.x, exit.z), dt);
+            const pr = press(alt); const frac = e.thrust / ((e.thrustMax * e.boost) || 1); const flick = 0.85 + 0.3 * Math.random(); const tPer = e.thrust / nN;
+            const exitW = b.worldPoint(e.exit, tmp.clone()); const dirW = (e.dirWorld || new V3(0, 1, 0)).clone().multiplyScalar(-1); const gh = heightAt(exitW.x, exitW.z);
+            for (let i = 0; i < nN; i++) {
+              const nz = nzs[i]; const base = Math.sqrt(tPer / 150000) * (e.liquid ? 1 : 0.9);
+              const len = nz.r * (8 + 22 * base * (1 + 1.6 * (1 - pr))) * flick * (0.5 + 0.5 * frac); const rad = nz.r * (1.0 + 0.9 * (1 - pr)) * 1.05;
+              const f0 = pv.flames[2 * i], f1 = pv.flames[2 * i + 1];
+              f0.scale.set(rad, len, rad); f1.scale.set(rad * 0.55, len * 0.55, rad * 0.55);
+              f0.material.uniforms.uTime.value = this.t; f1.material.uniforms.uTime.value = this.t;
+              f0.material.uniforms.uInt.value = 0.9 * Math.min(1, 0.4 + 0.8 * pr + 0.4 * (1 - pr)); f1.material.uniforms.uInt.value = 1.0;
+              if (e.gimbalVec) { f0.rotation.set(e.gimbalVec.z, 0, -e.gimbalVec.x); f1.rotation.copy(f0.rotation); }
+              const exit = nN > 1 ? b.worldPoint(e.exit.clone().add(nz.pos.clone().sub(view.exhaust.exit).applyQuaternion(ps.lq)), tmp.clone()) : exitW;
+              this.effects.exhaust(exit, dirW, b.vel, Math.min(1, frac) / Math.sqrt(nN), nz.r, rhoOf(alt), pr, gh, dt);
+            }
           }
         }
         if (ps.def.rcs && b.rcsFiring > 0.05 && pv.view.rcsNozzles.length) {
@@ -136,7 +143,7 @@ export class Flight {
     }
     if (this.state === 'flying' || this.state === 'countdown') { /* physics runs below */ }
     // physics steps (held vehicles still compute thrust/mass while clamped)
-    const steps = (this.state === 'flying' || this.state === 'paused') ? phys.update(dtReal) : 0;
+    const tp0 = performance.now(); const steps = (this.state === 'flying' || this.state === 'paused') ? phys.update(dtReal) : 0; this.perf.physMs += (performance.now() - tp0 - this.perf.physMs) * 0.1;
     if (this.state === 'flying') this.clock += dtReal * (this.settings.timeScale || 1);
     for (const ev of phys.events.splice(0)) this.handleEvent(ev);
     if (this.openClamps) { this.clampOpen = Math.min(1, this.clampOpen + dtReal / 2.0); this.world.setClamps(this.clampOpen); }
@@ -148,6 +155,8 @@ export class Flight {
     let best = null; if (active) for (const p of active.parts) if (p.engine && p.engine.thrust > 1 && (!best || p.engine.thrust > best.engine.thrust)) best = p;
     const L = this.world.engineLight; if (best) { L.position.copy(active.worldPoint(best.engine.exit, new V3())).addScaledVector(best.engine.dirWorld || new V3(0, 1, 0), -4); L.intensity = Math.min(1, best.engine.thrust / 400000) * 2200 * (0.85 + 0.3 * Math.random()); } else L.intensity = 0;
     this.effects.update(dtReal, viewH, this.camera.fov);
+    this.scene.environmentIntensity = 0.1 + 0.5 * phys.pressureRatio(alt);
+    this.dbg.update(phys, this.debugFlags);
   }
   handleEvent(ev) {
     const ef = this.effects;

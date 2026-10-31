@@ -3,19 +3,21 @@
 import * as THREE from 'three';
 
 export const PART_TEX_DIR = 'assets/rocket parts textures/';
+export const PART_TEX_DIR_LOD = 'assets/rocket parts textures mobile/';  // half-resolution copies for phones / low quality
 export const ENV_TEX_DIR = 'assets/environment/';
 export const PART_TEXTURES = ['nose_cone', 'rocket_body', 'rocket_body_panels', 'fuel_tank', 'liquid_engine', 'engine_nozzle', 'solid_rocket_booster', 'rocket_fins',
   'structural_connector', 'decoupler', 'landing_legs', 'heat_shield', 'parachute', 'battery', 'control_module', 'rcs_thruster', 'solar_panels', 'docking_port',
-  'adapter', 'carbon_fibre', 'insulation_foil', 'hazard_stripes', 'insignia_star', 'insignia_chevron', 'insignia_patch', 'insignia_checker'];
+  'adapter', 'carbon_fibre', 'insulation_foil', 'hazard_stripes', 'stainless_steel', 'raptor_cluster', 'grid_fin', 'flap_tiles', 'interstage', 'capsule', 'fairing', 'avionics_ring', 'insignia_star', 'insignia_chevron', 'insignia_patch', 'insignia_checker'];
 export const ENV_TEXTURES = ['terrain_grass', 'terrain_rock', 'launchpad_concrete', 'smoke_puff', 'flame_glow', 'cloud_puff'];
 
 export class TextureLibrary {
-  constructor(renderer) {
-    this.anisotropy = renderer ? Math.min(8, renderer.capabilities.getMaxAnisotropy()) : 1;
+  constructor(renderer, opts = {}) {
+    this.partDir = opts.lod ? PART_TEX_DIR_LOD : PART_TEX_DIR;
+    this.anisotropy = renderer ? Math.min(opts.lod ? 4 : 8, renderer.capabilities.getMaxAnisotropy()) : 1;
     this.cache = new Map(); this.log = []; this.failed = [];
     this.loader = new THREE.TextureLoader();
   }
-  async load(name, dir = PART_TEX_DIR) {
+  async load(name, dir = this.partDir) {
     const url = encodeURI(dir + name + '.png');
     try {
       const tex = await this.loader.loadAsync(url);
@@ -32,7 +34,7 @@ export class TextureLibrary {
     }
   }
   async loadAll(onProgress) {
-    const jobs = [...PART_TEXTURES.map(n => [n, PART_TEX_DIR]), ...ENV_TEXTURES.map(n => [n, ENV_TEX_DIR])];
+    const jobs = [...PART_TEXTURES.map(n => [n, this.partDir]), ...ENV_TEXTURES.map(n => [n, ENV_TEX_DIR])];
     let done = 0;
     await Promise.all(jobs.map(async ([n, d]) => { await this.load(n, d); done++; onProgress && onProgress(done / jobs.length, n); }));
     return this;

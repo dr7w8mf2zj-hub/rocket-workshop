@@ -31,7 +31,7 @@ export function helpBody() {
     row(k('Del'), 'delete'), row(k('Ctrl', 'D'), 'duplicate'), row(k('Ctrl', 'Z'), 'undo'), row(k('Ctrl', 'Y'), 'redo'), row(k('F'), 'frame rocket'), row(k('N'), 'toggle attachment nodes')),
   el('h3', { text: 'Flight' }), el('table', {},
     row(k('W', 'S'), 'pitch'), row(k('A', 'D'), 'yaw'), row(k('Q', 'E'), 'roll'), row(k('Shift'), 'throttle up (also ↑)'), row(k('Ctrl'), 'throttle down (also ↓)'), row(k('Z'), 'full throttle'), row(k('X'), 'cut throttle'),
-    row(k('Space'), 'launch countdown, then next stage'), row(k('P'), 'deploy parachutes'), row(k('T'), 'SAS attitude hold'), row(k('R'), 'RCS'), row(k('M'), 'engines on/off'), row(k('G'), 'landing legs'), row(k('C'), 'camera: chase / cockpit / free'), row(k('Esc'), 'pause')),
+    row(k('Space'), 'launch countdown, then next stage'), row(k('P'), 'deploy parachutes'), row(k('T'), 'SAS attitude hold'), row(k('R'), 'RCS'), row(k('M'), 'engines on/off'), row(k('G'), 'landing legs'), row(k('V'), 'SAS mode: hold → prograde → retrograde → up'), row(k('F'), 'deploy / stow grid fins'), row(k('L'), 'auto-land (suicide-burn guidance, legs recommended)'), row(k('Tab'), 'switch controlled vehicle (e.g. booster ↔ upper stage)'), row(k('C'), 'camera: chase / cockpit / free'), row(k('Esc'), 'pause')),
   el('p', { class: 'hint', text: 'Pitch/yaw/roll are relative to the camera in chase and free views (W = nose away from you). On phones use the joystick (pitch/yaw), ⟲ ⟳ (roll), the throttle slider and the STAGE button.' })];
 }
 
@@ -77,16 +77,19 @@ export class EditorUI {
     if (!kids.length) kids.push(el('div', { class: 'hint', text: 'No parts match.' })); list.replaceChildren(...kids);
   }
   card(def) {
-    const c = el('div', { class: 'card', 'data-type': def.id, title: def.desc }, el('img', { src: this.thumbs[def.id] || '', alt: '' }), el('div', {}, el('div', { class: 'nm', text: def.name }), el('div', { class: 'ds', text: def.desc.length > 60 ? def.desc.slice(0, 58) + '…' : def.desc })));
-    let st = null;
-    c.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse' && e.button !== 0) return; st = { x: e.clientX, y: e.clientY, t: e.pointerType, started: false }; });
+    const locked = !!def.unlock && !this.app.isUnlocked?.();
+    const c = el('div', { class: 'card' + (locked ? ' locked' : ''), 'data-type': def.id, title: locked ? '🔒 Locked: reach 3 km altitude in any flight to unlock advanced parts (the example rockets still load).' : def.desc }, el('img', { src: this.thumbs[def.id] || '', alt: '' }), el('div', {}, el('div', { class: 'nm', text: (locked ? '🔒 ' : '') + def.name }), el('div', { class: 'ds', text: def.desc.length > 60 ? def.desc.slice(0, 58) + '…' : def.desc })), el('span', { class: 'grip', title: 'Drag to place', text: '⠿' }));
+    let st = null, lp = null;
+    if (locked) { c.addEventListener('click', () => toast('Locked — reach 3 km altitude in a flight to unlock advanced parts.', true)); return c; }
+    const begin = (e) => { if (!st || st.started || this.app.mode !== 'editor') return; st.started = true; clearTimeout(lp); this.closeDrawers(); this.ws.startInventoryDrag(def.id, e); };
+    c.addEventListener('pointerdown', (e) => { if (e.pointerType === 'mouse' && e.button !== 0) return; st = { x: e.clientX, y: e.clientY, t: e.pointerType, started: false, grip: !!e.target.closest?.('.grip'), last: e }; clearTimeout(lp); if (e.pointerType !== 'mouse') lp = setTimeout(() => { if (st && !st.started && Math.hypot(st.last.clientX - st.x, st.last.clientY - st.y) < 12) begin(st.last); }, 380); });
     c.addEventListener('pointermove', (e) => {
-      if (!st || st.started) return; const dx = e.clientX - st.x, dy = e.clientY - st.y; const m = Math.hypot(dx, dy);
-      const go = st.t === 'mouse' ? m > 5 : (m > 14 && Math.abs(dy) > Math.abs(dx) * 1.2 && e.clientY < c.getBoundingClientRect().top - 6 || m > 40);
-      if (go && this.app.mode === 'editor') { st.started = true; this.closeDrawers(); this.ws.startInventoryDrag(def.id, e); }
+      if (!st || st.started) return; st.last = e; const dx = e.clientX - st.x, dy = e.clientY - st.y; const m = Math.hypot(dx, dy);
+      const go = st.t === 'mouse' ? m > 5 : st.grip ? m > 4 : (m > 14 && Math.abs(dy) > Math.abs(dx) * 1.2 && e.clientY < c.getBoundingClientRect().top - 6 || m > 40);
+      if (go) begin(e);
     });
-    c.addEventListener('pointerup', () => { if (st && !st.started && this.app.mode === 'editor') { this.ws.quickAdd(def.id); if (st.t !== 'mouse') this.closeDrawers(); } st = null; });
-    c.addEventListener('pointercancel', () => { st = null; });
+    c.addEventListener('pointerup', () => { clearTimeout(lp); if (st && !st.started && this.app.mode === 'editor') { this.ws.quickAdd(def.id); if (st.t !== 'mouse') this.closeDrawers(); } st = null; });
+    c.addEventListener('pointercancel', () => { clearTimeout(lp); st = null; });
     return c;
   }
   closeDrawers() { ['inventory', 'side', 'warnings'].forEach(i => $('#' + i).classList.remove('open')); }
@@ -112,7 +115,7 @@ export class EditorUI {
   bindToolbar() {
     const ws = this.ws;
     $('#toolbar').onclick = (e) => { const b = e.target.closest('button[data-act]'); if (!b) return; ({ rotX: () => ws.rotateSelected('x', 90), rotY: () => ws.rotateSelected('y', 90), rotZ: () => ws.rotateSelected('z', 90), dup: () => ws.duplicateSelected(), del: () => ws.deleteSelected(), detach: () => ws.detachSelected(), attach: () => ws.attachSelected(), nodes: () => { const on = ws.toggleNodes(); b.classList.toggle('on', on); }, frame: () => ws.frame() })[b.dataset.act](); };
-    $('[data-act=nodes]').classList.add('on'); const sym = $('#selSym'); sym.onchange = () => { this.design.settings.symmetry = +sym.value; ws.status('Symmetry ×' + sym.value + ' for radial parts'); };
+    $('[data-act=nodes]').classList.add('on'); const lk = $('#chkLink'); if (lk) lk.onchange = () => { this.design.settings.symLink = lk.checked; ws.status(lk.checked ? 'Symmetric copies are linked: edits apply to all copies' : 'Symmetric copies unlinked'); }; const sym = $('#selSym'); sym.onchange = () => { this.design.settings.symmetry = +sym.value; ws.status('Symmetry ×' + sym.value + ' for radial parts'); };
   }
   bindTabs() { $('#sideTabs').onclick = (e) => { const b = e.target.closest('button[data-tab]'); if (!b) return; this.tab = b.dataset.tab; this.showTab(); this.refresh(); }; }
   showTab() { document.querySelectorAll('#sideTabs button[data-tab]').forEach(b => b.classList.toggle('on', b.dataset.tab === this.tab)); for (const t of ['props', 'paint', 'tree', 'stage']) $('#tab-' + t).classList.toggle('hidden', t !== this.tab); }
@@ -121,7 +124,7 @@ export class EditorUI {
   refreshLight() { this.renderStats(); }
   refresh() {
     const d = this.design; const nm = $('#rocketName'), id = $('#rocketId'); if (document.activeElement !== nm) nm.value = d.name; if (document.activeElement !== id) id.value = d.idCode;
-    $('#selSym').value = String(d.settings.symmetry || 1); $('#bUndo').disabled = !this.app.history.canUndo; $('#bRedo').disabled = !this.app.history.canRedo;
+    $('#selSym').value = String(d.settings.symmetry || 1); if ($('#chkLink')) $('#chkLink').checked = d.settings.symLink !== false; $('#bUndo').disabled = !this.app.history.canUndo; $('#bRedo').disabled = !this.app.history.canRedo;
     this.showTab(); this.renderStats(); this.renderWarnings();
     if (this.tab === 'props') this.renderProps(); else if (this.tab === 'paint') this.renderPaint(); else if (this.tab === 'tree') this.renderTree(); else this.renderStaging();
     this.app.onDesignChanged?.();
@@ -151,9 +154,9 @@ export class EditorUI {
     // dimensions
     if (def.params.length) kids.push(el('div', { class: 'sec', text: 'Dimensions' }));
     for (const pr of def.params) {
-      const v = p.dims[pr.key]; const out = el('span', { class: 'val', text: (+v).toFixed(2) });
+      const v = p.dims[pr.key]; const dg = pr.step >= 1 ? 0 : 2; const out = el('span', { class: 'val', text: (+v).toFixed(dg) });
       const r = el('input', { type: 'range', min: pr.min, max: pr.max, step: pr.step, value: v });
-      r.addEventListener('input', () => { this.busy = true; out.textContent = (+r.value).toFixed(2); ws.setDim(pr.key, +r.value, false); });
+      r.addEventListener('input', () => { this.busy = true; out.textContent = (+r.value).toFixed(dg); ws.setDim(pr.key, +r.value, false); });
       r.addEventListener('change', () => { ws.setDim(pr.key, +r.value, true); this.busy = false; this.refresh(); });
       kids.push(el('div', { class: 'row' }, el('label', { text: pr.label }), r, out));
     }
@@ -234,7 +237,9 @@ export class EditorUI {
     const body = $('#tab-stage'); const d = this.design; const items = d.stageItems(); const n = Math.max(d.stageCount(), 0) + 1; const kids = [];
     kids.push(el('div', { class: 'hint', text: 'Stage 1 fires first (Space in flight). Assign each engine, decoupler, separator booster and parachute to a stage.' }));
     kids.push(el('div', { class: 'btnrow' }, el('button', { text: 'Auto-assign stages', onclick: () => { d.autoStage(); this.app.history.commit(); this.ws.syncViews(); this.ws.emit('change'); toast('Stages assigned automatically'); } }),
-      el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: !!d.settings.autoStage, onchange: (e) => { d.settings.autoStage = e.target.checked; this.app.history.commit(); } }), ' Auto-stage in flight (when burning engines flame out)')));
+      el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: !!d.settings.autoStage, onchange: (e) => { d.settings.autoStage = e.target.checked; this.app.history.commit(); } }), ' Auto-stage in flight (when burning engines flame out)'),
+      el('label', { class: 'row' }, el('input', { type: 'checkbox', checked: !!d.settings.autoRecover, onchange: (e) => { d.settings.autoRecover = e.target.checked; this.app.history.commit(); } }), ' Auto-land separated stages that have avionics (grid fins deploy, suicide-burn guidance)'),
+      el('div', { class: 'row' }, el('label', { text: 'Landing reserve' }), el('input', { type: 'range', min: 0, max: 0.3, step: 0.01, value: d.settings.reserve || 0, onchange: (e) => { d.settings.reserve = +e.target.value; this.app.history.commit(); this.renderStaging(); } }), el('span', { class: 'val', text: Math.round((d.settings.reserve || 0) * 100) + '%' }))));
     const groups = []; for (let i = -1; i < n; i++) groups.push({ i, items: items.filter(it => it.stage === i) });
     for (const g of groups) {
       if (g.i === -1 && !g.items.length) continue; if (g.i >= 0 && g.i === n - 1 && !g.items.length && g.i > 0) { /* spare empty stage still shown */ }
@@ -271,7 +276,7 @@ export class FlightUI {
       this.hudRow('Accel', fmt(tel.accelG, 2) + ' g') + this.hudRow('Mass', fmtMass(tel.mass)) + this.hudRow('Thrust', fmt(tel.thrust / 1000, 0) + ' kN') + this.hudRow('TWR', fmt(tel.twrNow, 2) + ' / ' + fmt(tel.twr, 2)) +
       this.hudRow('Fuel', fmt(fuelF * 100, 0) + '% · ' + fmtMass(tel.liquid + tel.solid)) + `<div class="gauge"><div style="width:${fuelF * 100}%"></div></div>` + (tel.ecCap > 0 ? this.hudRow('Electric', fmt(tel.ec, 0) + '/' + fmt(tel.ecCap, 0), true) + `<div class="gauge ec x"><div style="width:${tel.ec / tel.ecCap * 100}%"></div></div>` : '') +
       this.hudRow('Pitch / Hdg', fmt(pitch, 0) + '° / ' + fmt(hdg, 0) + '°') + this.hudRow('Dyn. pressure', fmt(tel.q / 1000, 1) + ' kPa', true) + this.hudRow('Gravity', fmt(tel.g, 2) + ' m/s²', true) + this.hudRow('Stage', Math.min(tel.stage + 1, tel.stageCount) + ' / ' + tel.stageCount) +
-      this.hudRow('Flags', `${tel.sas ? 'SAS ' : ''}${tel.rcs ? 'RCS ' : ''}${tel.landed ? 'LANDED ' : ''}${tel.hasControl ? '' : 'NO CONTROL'}`.trim() || '–') + `<div class="eng">${engs}</div>` + (tel.bodies > 1 ? this.hudRow('Objects', tel.bodies) : '') + (tel.heat > 0.15 ? this.hudRow('Heating', Math.round(tel.heat * 100) + '%') : '');
+      this.hudRow('SAS mode', tel.sas ? tel.sasMode : 'off') + (tel.fins ? this.hudRow('Grid fins', tel.fins) : '') + (tel.autoland ? this.hudRow('AUTO-LAND', tel.apBurn ? 'BURN · ' + fmtDist(tel.clearance) : 'armed · ' + fmtDist(tel.clearance)) : '') + (tel.controllable > 1 ? this.hudRow('Vehicle', tel.vehicle + ' (Tab)') : '') + this.hudRow('Flags', `${tel.sas ? 'SAS ' : ''}${tel.rcs ? 'RCS ' : ''}${tel.landed ? 'LANDED ' : ''}${tel.hasControl ? '' : 'NO CONTROL'}`.trim() || '–') + `<div class="eng">${engs}</div>` + (tel.bodies > 1 ? this.hudRow('Objects', tel.bodies) : '') + (tel.heat > 0.15 ? this.hudRow('Heating', Math.round(tel.heat * 100) + '%') : '');
     $('#thrFill').style.height = (tel.throttle * 100) + '%'; $('#thrTxt').textContent = Math.round(tel.throttle * 100) + '%';
     $('#cockpitInfo').innerHTML = [['ALT', fmtDist(tel.altitude)], ['SPEED', fmt(tel.speed, 0) + ' m/s'], ['V-SPD', fmt(tel.vspeed, 0)], ['G', fmt(tel.accelG, 1)], ['FUEL', fmt(fuelF * 100, 0) + '%'], ['TWR', fmt(tel.twrNow, 2)], ['THR', Math.round(tel.throttle * 100) + '%']].map(([k, v]) => `<div><b>${v}</b><span>${k}</span></div>`).join('');
     // stage sequence

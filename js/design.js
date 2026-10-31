@@ -12,9 +12,12 @@ export class Design {
   constructor() { this.reset(); }
   reset() {
     this.name = 'Untitled Rocket'; this.idCode = 'RW-001';
-    this.parts = new Map(); this.links = []; this.rootId = null; this._n = 1; this.settings = { symmetry: 1, autoStage: false };
+    this.parts = new Map(); this.links = []; this.rootId = null; this._n = 1; this._sy = 1; this.settings = { symmetry: 1, autoStage: false, symLink: true };
   }
   newId() { return 'p' + (this._n++); }
+  newSym() { return 's' + (this._sy++); }
+  /** Ids of all parts in the same symmetry group as `id` (just [id] when unlinked / not symmetric). */
+  symGroup(id) { const p = this.parts.get(id); if (!p || !p.sym || this.settings.symLink === false) return [id]; return this.all().filter(q => q.sym === p.sym).map(q => q.id); }
   get(id) { return this.parts.get(id); }
   def(part) { return PARTS[part.type]; }
   all() { return [...this.parts.values()]; }
@@ -27,7 +30,7 @@ export class Design {
       id, type, pos: o.pos ? [...o.pos] : [0, 0, 0], quat: o.quat ? [...o.quat] : [0, 0, 0, 1],
       dims: fillDims(def, o.dims), appearance: Object.assign(defaultAppearance(), o.appearance || {}),
       config: Object.assign({ fill: 1, thrustLimit: 1, gimbal: true, sep: !!def.radialSep, canopyDeploy: 'manual' }, o.config || {}),
-      stage: o.stage != null ? o.stage : -1, sepStage: o.sepStage != null ? o.sepStage : -1, label: o.label || '',
+      stage: o.stage != null ? o.stage : -1, sepStage: o.sepStage != null ? o.sepStage : -1, label: o.label || '', sym: o.sym || null,
     };
     this.parts.set(id, part); if (!this.rootId) this.rootId = id;
     return part;
@@ -253,7 +256,8 @@ export class Design {
       if (axial < (ga.L + gb.L) / 2 * 0.8 && lat < (ga.r + gb.r) * 0.7) add('warn', `${PARTS[a.type].name} overlaps ${PARTS[b.type].name}.`, [a.id, b.id]);
     }
     const stab = this.stability();
-    if (stab && engines.length) { if (stab.marginFull < 0) add('warn', `Aerodynamically unstable (centre of pressure is ahead of the centre of mass by ${(-stab.marginFull).toFixed(2)} calibres). Add fins near the bottom.`); else if (stab.marginEmpty < 0) add('warn', `Stable at launch (${stab.marginFull.toFixed(2)} cal) but becomes unstable as fuel burns off (${stab.marginEmpty.toFixed(2)} cal). Add larger fins.`); }
+    if (stab && engines.length && stab.marginFull < 0 && vp.some(p => PARTS[p.type].control) && engines.some(e => PARTS[e.type].engine.gimbal > 0 && e.config.gimbal !== false)) add('info', `Aerodynamically unstable by design (${(-stab.marginFull).toFixed(1)} cal) like most real rockets: it relies on gimbal + SAS (T). Keep SAS on and the angle of attack small.`);
+    else if (stab && engines.length) { if (stab.marginFull < 0) add('warn', `Aerodynamically unstable (centre of pressure is ahead of the centre of mass by ${(-stab.marginFull).toFixed(2)} calibres). Add fins near the bottom.`); else if (stab.marginEmpty < 0) add('warn', `Stable at launch (${stab.marginFull.toFixed(2)} cal) but becomes unstable as fuel burns off (${stab.marginEmpty.toFixed(2)} cal). Add larger fins.`); }
     if (!out.some(o => o.level === 'error' || o.level === 'warn')) add('ok', 'Assembly valid. Ready for launch.');
     return out;
   }
@@ -268,7 +272,7 @@ export class Design {
       mFull += dry + fuel; cFull += (dry + fuel) * y; mEmpty += dry; cEmpty += dry * y;
       if (d.stack !== 'none') rmax = Math.max(rmax, g.r);
       let c = 0, yy = y;
-      if (d.finArea) { c = 6.0 * p.dims.span * p.dims.chord * 0.5; }
+      if (d.finArea) { c = (d.ctrl && d.ctrl.stow) ? 0 : 6.0 * p.dims.span * p.dims.chord * 0.5 * (d.finK ?? 1); }
       else if (d.model === 'cone') c = 2 * Math.PI * g.r * g.r;
       else if (d.model === 'adapter' || d.model === 'pod') c = 2 * Math.PI * g.r * g.r * (1 - d.topK * d.topK);
       else if (d.model === 'engine') { c = 2 * Math.PI * (Math.pow(d.bellK * 0.85 * g.r, 2) - Math.pow(0.9 * g.r, 2)); }
@@ -289,13 +293,14 @@ export class Design {
   // ---------------------------------------------------------------- serialisation
   toJSON() {
     return { schema: SCHEMA, version: SCHEMA_VERSION, name: this.name, idCode: this.idCode, rootId: this.rootId, nextId: this._n, settings: { ...this.settings },
-      parts: this.all().map(p => ({ id: p.id, type: p.type, pos: p.pos.map(round6), quat: p.quat.map(round6), dims: { ...p.dims }, appearance: { ...p.appearance }, config: { ...p.config }, stage: p.stage, sepStage: p.sepStage, label: p.label })),
+      parts: this.all().map(p => ({ id: p.id, type: p.type, pos: p.pos.map(round6), quat: p.quat.map(round6), dims: { ...p.dims }, appearance: { ...p.appearance }, config: { ...p.config }, stage: p.stage, sepStage: p.sepStage, label: p.label, sym: p.sym || null })),
       links: this.links.map(l => ({ ...l, radial: l.radial ? { ...l.radial } : null })) };
   }
   fromJSON(j) {
     if (!j || j.schema !== SCHEMA || !Array.isArray(j.parts)) throw new Error('Not a Rocket Workshop design file');
-    this.reset(); this.name = j.name || 'Imported Rocket'; this.idCode = j.idCode || 'RW-001'; this.settings = Object.assign({ symmetry: 1, autoStage: false }, j.settings || {});
-    for (const p of j.parts) { if (!PARTS[p.type]) continue; this.addPart(p.type, p); const q = this.parts.get(p.id); q.stage = p.stage != null ? p.stage : -1; q.sepStage = p.sepStage != null ? p.sepStage : -1; }
+    this.reset(); this.name = j.name || 'Imported Rocket'; this.idCode = j.idCode || 'RW-001'; this.settings = Object.assign({ symmetry: 1, autoStage: false, symLink: true }, j.settings || {});
+    for (const p of j.parts) { if (!PARTS[p.type]) continue; this.addPart(p.type, p); const q = this.parts.get(p.id); q.stage = p.stage != null ? p.stage : -1; q.sepStage = p.sepStage != null ? p.sepStage : -1; q.sym = p.sym || null; }
+    this._sy = 1 + Math.max(0, ...(j.parts || []).map(p => p.sym ? parseInt(String(p.sym).slice(1)) || 0 : 0));
     this._n = Math.max(j.nextId || 1, ...[...this.parts.keys()].map(k => parseInt(k.slice(1)) + 1 || 1));
     this.rootId = j.rootId && this.parts.has(j.rootId) ? j.rootId : (this.parts.size ? this.parts.keys().next().value : null);
     for (const l of j.links || []) if (this.parts.has(l.parent) && this.parts.has(l.child)) this.links.push({ parent: l.parent, child: l.child, pn: l.pn || null, cn: l.cn || null, radial: l.radial || null, roll: l.roll || 0 });

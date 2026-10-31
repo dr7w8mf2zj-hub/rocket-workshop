@@ -55,6 +55,7 @@
     <button data-act="dup" title="Duplicate (Ctrl+D)">⧉</button><button data-act="del" title="Delete selected part (Del)">🗑</button>
     <button data-act="detach" title="Detach from parent">⛓✂</button><button data-act="attach" title="Attach to the nearest free node">⛓</button>
     <button data-act="nodes" title="Show / hide attachment nodes (N)">◎</button><button data-act="frame" title="Frame whole rocket (F)">⤢</button>
+    <label class="sym" title="Link: edit / delete symmetric copies together"><input type="checkbox" id="chkLink" checked>🔗</label>
     <label class="sym" title="Symmetry for radial parts (fins, boosters, legs...)">Sym <select id="selSym"><option>1</option><option>2</option><option>3</option><option>4</option><option>6</option><option>8</option></select></label>
   </div>
   <div id="statusbar"><span id="statusMsg">Ready</span></div>
@@ -84,7 +85,7 @@
     <div id="joy"><div id="joyKnob"></div></div>
     <div id="touchBtns">
       <button id="bRollL">⟲</button><button id="bRollR">⟳</button>
-      <button id="bSas">SAS</button><button id="bRcs">RCS</button><button id="bEng">ENG</button><button id="bLegs">LEG</button>
+      <button id="bSas">SAS</button><button id="bRcs">RCS</button><button id="bEng">ENG</button><button id="bLegs">LEG</button><button id="bMode">MODE</button><button id="bFins">FIN</button><button id="bAuto">LAND</button><button id="bSw">⇄</button>
       <button id="bChute">🪂</button><button id="bFull">MAX</button><button id="bCut">CUT</button><button id="bCam">📷</button>
       <button id="bStage" class="stagebtn">STAGE</button>
     </div>

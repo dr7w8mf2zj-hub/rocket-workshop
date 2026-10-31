@@ -6,10 +6,11 @@ import { Workshop, renderThumbnails } from './construction.js';
 import { Flight, CAMERA_MODES } from './flight.js';
 import { FlightControls } from './controls.js';
 import { EditorUI, FlightUI, el, toast, modal, closeModal, helpBody } from './ui.js';
-import { Store, exportDesign, readDesignFile } from './storage.js';
+import { Store, Progress, exportDesign, readDesignFile } from './storage.js';
 import { TEMPLATES, TEMPLATE_NAMES } from './templates.js';
 import { defaultSettings } from './physics.js';
 import { engineStats } from './registry.js';
+import { initAdminBridge } from './adminbridge.js';
 
 const $ = (s) => document.querySelector(s);
 const params = new URLSearchParams(location.search);
@@ -18,6 +19,7 @@ if (params.has('touch') || matchMedia('(pointer: coarse)').matches) document.bod
 const QUALITY = { low: { pr: 1, shadows: false }, medium: { pr: 1.5, shadows: true }, high: { pr: 2, shadows: true } };
 
 const app = {
+  isUnlocked: () => Progress.unlocked(), Progress,
   THREE, mode: 'loading', store: Store, templateNames: TEMPLATE_NAMES, engineStats, errors: [],
   settings: Object.assign({ ...defaultSettings(), quality: matchMedia('(pointer: coarse)').matches ? 'medium' : 'high' }, Store.settings() || {}),
 };
@@ -30,7 +32,8 @@ async function boot() {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance', preserveDrawingBuffer: params.has('shot') });
   renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFShadowMap; renderer.outputColorSpace = THREE.SRGBColorSpace;
   app.renderer = renderer;
-  const lib = new TextureLibrary(renderer); app.lib = lib;
+  const coarse = matchMedia('(pointer: coarse)').matches; const lod = app.settings.quality === 'low' || (coarse && app.settings.quality !== 'high') || params.has('lod');
+  const lib = new TextureLibrary(renderer, { lod }); app.lib = lib; app.texLod = lod;
   await lib.loadAll((p, n) => { $('#ldBar').style.width = (p * 100) + '%'; $('#ldText').textContent = 'Loading textures… ' + n; });
   if (lib.failed.length) { app.errors.push('texture load failures: ' + lib.failed.join(', ')); }
   $('#ldText').textContent = 'Building workshop…'; await new Promise(r => setTimeout(r, 20));
@@ -94,13 +97,20 @@ async function boot() {
     render(); modal('Sandbox settings', body);
   }
 
+  // ---------------------------------------------------------------- progression (advanced parts unlock at 3 km)
+  let progT = 0; const trackProgress = () => {
+    const f = app.flight; if (!f || !f.phys || f.state !== 'flying' || !f.phys.active) return; if (performance.now() - progT < 500) return; progT = performance.now();
+    const alt = f.phys.active.pos.y; const was = Progress.unlocked();
+    Progress.update((p) => { if (alt > p.maxAlt) p.maxAlt = alt; });
+    if (!was && Progress.unlocked()) { toast('🔓 Unlocked advanced parts: stainless tanks, engine clusters, grid fins, flaps, capsule, fairing…'); app.editorUI?.renderList(); }
+  };
   // ---------------------------------------------------------------- loop
   let last = performance.now();
   const loop = (now) => {
-    requestAnimationFrame(loop); const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    requestAnimationFrame(loop); const dt = Math.min(0.1, (now - last) / 1000); last = now; app.fpsTick && app.fpsTick();
     try {
       if (app.mode === 'flight' && app.flight) {
-        app.controls.update(dt); app.flight.update(dt, window.innerWidth, window.innerHeight); app.flight.render(); app.flightUI.update(dt);
+        app.controls.update(dt); const t0 = performance.now(); app.flight.update(dt, window.innerWidth, window.innerHeight); app.flight.render(); app.flightUI.update(dt); app.flight.perf.frameMs = performance.now() - t0; trackProgress();
       } else if (app.mode === 'editor') ws.render();
     } catch (e) { if (!app.loopError) { app.loopError = e; console.error('loop error', e); app.errors.push('loop: ' + e.message + '\n' + e.stack); } }
   };
@@ -108,6 +118,7 @@ async function boot() {
   document.addEventListener('visibilitychange', () => { if (document.hidden && app.mode === 'flight' && app.flight?.state === 'flying' && !app.flight.paused) togglePause(); });
   // block browser pinch/scroll gestures on the game surface
   document.addEventListener('gesturestart', (e) => e.preventDefault());
+  app.admin = initAdminBridge(app);
   app.applyQuality(); app.mode = 'editor'; ws.enabled = true; app.resize();
   $('#loading').remove(); requestAnimationFrame(loop);
   if (params.has('autolaunch')) app.launch();

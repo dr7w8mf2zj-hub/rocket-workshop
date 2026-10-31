@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 100 100%27%3E%3Ctext y=%27.9em%27 font-size=%2790%27%3E%E2%9A%99%3C/text%3E%3C/svg%3E">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Rocket Workshop — admin console</title>
+<style>
+:root{color-scheme:dark} *{box-sizing:border-box}
+body{margin:0;font:14px/1.45 system-ui,Segoe UI,Roboto,sans-serif;background:#0b1017;color:#d7e2f0}
+header{display:flex;gap:12px;align-items:center;padding:10px 16px;background:#111a26;border-bottom:1px solid #243346;position:sticky;top:0;z-index:5}
+h1{font-size:16px;margin:0} .sp{flex:1} .pill{padding:2px 10px;border-radius:99px;font-size:12px;border:1px solid #365}
+.ok{color:#7ee2a0;border-color:#2c6b46}.bad{color:#ff8e86;border-color:#7a3430}.wn{color:#ffd37a;border-color:#7a6430}
+main{padding:14px;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));max-width:1400px;margin:0 auto}
+section{background:#121c29;border:1px solid #243346;border-radius:10px;padding:12px 14px}
+section h2{font-size:13px;margin:0 0 8px;text-transform:uppercase;letter-spacing:.08em;color:#8fb0d8}
+.row{display:flex;gap:8px;align-items:center;margin:6px 0;flex-wrap:wrap} .row label{min-width:110px;color:#a9bcd4}
+button,select,input{font:inherit;color:#e6eef8;background:#1b2a3d;border:1px solid #34506f;border-radius:7px;padding:5px 10px}
+button{cursor:pointer} button:hover{background:#25405e} button.on{background:#2d6a4a;border-color:#3f9a6a} button.danger{background:#5a2420;border-color:#9a423c}
+input[type=range]{flex:1;min-width:120px;padding:0} input[type=number]{width:110px} input[type=password]{width:100%}
+.kv{display:grid;grid-template-columns:1fr auto;gap:2px 10px} .kv span{color:#8fa3bd} .kv b{font-variant-numeric:tabular-nums;text-align:right}
+#login{max-width:380px;margin:12vh auto;background:#121c29;border:1px solid #243346;border-radius:12px;padding:22px}
+#log{height:120px;overflow:auto;font:12px ui-monospace,monospace;background:#0b1017;border:1px solid #243346;border-radius:7px;padding:6px;white-space:pre-wrap}
+.note{font-size:12px;color:#8fa3bd;margin-top:8px} .hidden{display:none!important} .val{min-width:62px;text-align:right;font-variant-numeric:tabular-nums}
+</style>
+</head>
+<body>
+<div id="login">
+  <h1>🔒 Rocket Workshop admin</h1>
+  <p class="note">Enter the admin passcode. This console controls the game running in <b>another tab of this same browser</b>.</p>
+  <div class="row"><input id="pw" type="password" placeholder="Passcode" autocomplete="current-password" autofocus></div>
+  <div class="row"><button id="go">Unlock</button><span id="lmsg" class="note"></span></div>
+  <p class="note">Client-side only: the check runs in your browser and is not real security.</p>
+</div>
+<div id="app" class="hidden">
+<header><h1>🚀 Admin console</h1><span id="conn" class="pill bad">game not found</span><span id="st" class="pill">–</span><span class="sp"></span><button id="lock">Lock</button></header>
+<main>
+  <section><h2>Performance &amp; physics</h2><div class="kv" id="perf"></div></section>
+  <section><h2>Objects</h2><div class="kv" id="objs"></div></section>
+  <section><h2>Active vehicle</h2><div class="kv" id="veh"></div></section>
+  <section><h2>Cheats</h2>
+    <div class="row"><button data-cheat="infFuel">Infinite fuel</button><button data-cheat="god">God mode / no crash</button><button data-cheat="noHeat">No re-entry heat</button></div>
+    <div class="row"><button id="refuel">Refuel + recharge</button><button id="pauseB">Pause / resume</button><button id="launch">Launch now</button></div>
+    <div class="row"><button id="clear">Clear debris &amp; spawned</button></div>
+  </section>
+  <section><h2>Time &amp; world</h2>
+    <div class="row"><label>Time scale</label><input id="ts" type="range" min="0.1" max="5" step="0.1" value="1"><span class="val" id="tsv">1.0×</span></div>
+    <div class="row"><label>Gravity g₀</label><input id="g0" type="range" min="0" max="30" step="0.1" value="9.81"><span class="val" id="g0v"></span></div>
+    <div class="row"><label>Atmosphere ×</label><input id="atm" type="range" min="0" max="4" step="0.05" value="1"><span class="val" id="atmv"></span></div>
+    <div class="row"><label>Scale height</label><input id="sh" type="range" min="2000" max="20000" step="250" value="7500"><span class="val" id="shv"></span></div>
+    <div class="row"><label>Wind m/s</label><input id="wind" type="range" min="0" max="60" step="1" value="0"><span class="val" id="windv"></span></div>
+    <div class="row"><button data-pre="earth">Earth</button><button data-pre="moon">Moon</button><button data-pre="mars">Mars</button><button data-pre="zero">Zero-g</button><button data-pre="vac">No air</button></div>
+  </section>
+  <section><h2>Teleport</h2>
+    <div class="row"><label>Altitude (m)</label><input id="alt" type="number" value="1000" min="0" step="100"><button id="tp">Teleport</button></div>
+    <div class="row"><button data-alt="0">Ground</button><button data-alt="1000">1 km</button><button data-alt="10000">10 km</button><button data-alt="50000">50 km</button><button data-alt="100000">100 km</button></div>
+    <div class="row"><label><input type="checkbox" id="zv"> zero velocity</label></div>
+  </section>
+  <section><h2>Spawn rocket</h2>
+    <div class="row"><select id="ex" style="flex:1"></select></div>
+    <div class="row"><label>Altitude (m)</label><input id="salt" type="number" value="0" min="0" step="100"><button id="spawn">Spawn</button></div>
+    <p class="note">Spawned rockets are added to the running flight (start a flight in the game tab first). They sit beside your vehicle and can be switched to with Tab if they have avionics.</p>
+  </section>
+  <section><h2>Debug overlays (in the game view)</h2>
+    <div class="row"><button data-viz="com">Centre of mass</button><button data-viz="cop">Centre of pressure</button><button data-viz="thrust">Thrust vectors</button><button data-viz="nodes">Attachment nodes</button></div>
+  </section>
+  <section><h2>Progress &amp; save data</h2>
+    <div class="row"><button id="unlock">Unlock all parts</button><button id="relock">Re-lock</button></div>
+    <div class="row"><label>Graphics</label><select id="q"><option>low</option><option>medium</option><option>high</option></select></div>
+    <div class="row"><input id="rst" placeholder="type RESET" style="width:110px"><button id="reset" class="danger">Reset save data</button></div>
+    <div class="kv" id="prog" style="margin-top:6px"></div>
+  </section>
+  <section style="grid-column:1/-1"><h2>Log</h2><div id="log"></div>
+    <p class="note">Client-side only: this console and the game must be open in the same browser on the same device (tabs/windows of the same origin). Cross-device control is not supported. The passcode check runs in your browser, so it is a convenience gate, not real security.</p></section>
+</main></div>
+<script type="module" src="js/admin.js"></script>
+</body></html>
