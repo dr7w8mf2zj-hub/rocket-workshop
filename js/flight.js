@@ -47,7 +47,7 @@ export class Flight {
     body.pos.set(0, -body.lowest + 0.02, 0); body.held = true; this.phys.clampActive = true; this.phys.inputs.throttle = 0;
     this.phys.autoStage = !!design.settings?.autoStage; this.state = 'prelaunch'; this.count = 0; this.clock = 0; this.clampOpen = 0; this.openClamps = false; this.world.setClamps(0);
     this.messages = []; this.syncViews(true);
-    this.rig.target.copy(body.pos); this.rig.dist = Math.max(14, body.radius * 2.6); this.rig.az = 0.7; this.rig.el = 0.18; this.freeTarget.copy(body.pos);
+    this.rig.target.copy(body.pos); this.rig.dist = Math.max(14, body.radius * 2.6) * Math.max(1, 1.15 / this.camera.aspect); this.rig.az = 0.7; this.rig.el = 0.18; this.freeTarget.copy(body.pos);
     this.camMode = 'chase'; this.lastFrameT = performance.now();
     return body;
   }

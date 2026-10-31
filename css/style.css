@@ -121,3 +121,5 @@ body.touch #touch { display:block; }
 
 @media (max-height: 520px) { #hud .x { display:none; } #hud .big { margin-bottom:2px; } #joy { z-index:7; } }
 @media (max-width: 900px), (pointer: coarse) { #bLaunch { order:-1; position:sticky; left:0; } #topbar .spacer { display:none; } #topbar { padding-left:6px; } .brand { display:none !important; } }
+
+@media (max-width: 520px) { #hud .x { display:none; } #hud { top:calc(48px + var(--safe-t)); } }
